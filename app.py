@@ -62,91 +62,234 @@ MONTH_MAP = {
 
 
 def detect_bank_and_month(full_text, filename=""):
-  txt_upper = (full_text + " " + filename).upper()
+  header_scope = full_text[:1500].upper()
+  full_upper = (full_text + " " + filename).upper()
 
-  if any(k in txt_upper for k in ["BANK SYARIAH INDONESIA", "BSI"]):
+  # 1. Deteksi Bank Berdasarkan Header Dokumen
+  if any(k in header_scope for k in ["BANK CENTRAL ASIA", "REKENING GIRO"]) or (
+      "BCA" in header_scope and "MUTASI" in header_scope
+  ) or ("BCA" in filename.upper() and ("REKENING" in header_scope or "GIRO" in header_scope)):
+    bank = "BCA"
+  elif any(k in header_scope for k in ["BANK SYARIAH INDONESIA", "BSI", "BSINET"]) or ("BSI" in filename.upper()):
     bank = "BSI"
   elif any(
-      k in txt_upper
+      k in header_scope
       for k in [
           "BANK RAKYAT INDONESIA",
-          "IBIZ",
           "SETULUS HATI",
           "LAPORAN TRANSAKSI FINANSIAL",
       ]
-  ):
+  ) or ("IBIZ" in header_scope and "BRI" in full_upper) or ("BRI" in filename.upper() and "TRANSAKSI" in header_scope):
     bank = "BRI"
   elif any(
-      k in txt_upper
+      k in header_scope
       for k in [
           "BANK NEGARA INDONESIA",
           "BNI DIRECT",
           "LEDGER BALANCE",
-          "TRANSACTION DESCRIPTION",
       ]
-  ) or "BNI" in filename.upper():
+  ) or ("BNI" in header_scope and "ACCOUNT STATEMENT" in header_scope) or ("BNI" in filename.upper()):
     bank = "BNI"
-  elif any(k in txt_upper for k in ["PERMATA", "PERMATA BANK", "PERMATABANK"]):
-    bank = "PERMATA"
-  elif (
-      any(k in txt_upper for k in ["BANK MANDIRI", "MANDIRI", "KOPRA"])
-      or "MANDIRI" in filename.upper()
-  ):
+  elif any(k in header_scope for k in ["BANK BJB", "BANK JABAR", "BJB"]) or (
+      "ACCOUNT ACTIVITY" in header_scope and "GIRO UMUM" in header_scope
+  ) or ("BJB" in filename.upper()):
+    bank = "BJB"
+  elif any(k in header_scope for k in ["BANK MANDIRI", "KOPRA", "MCM"]) or (
+      "MANDIRI" in header_scope and "REKENING" in header_scope
+  ) or ("MANDIRI" in filename.upper()):
     bank = "MANDIRI"
-  elif (
-      any(
-          k in txt_upper
-          for k in ["BANK CENTRAL ASIA", "REKENING GIRO\nNO. REKENING"]
-      )
-      or "BCA" in filename.upper()
-  ):
+  elif re.search(r"\b(?:BANK\s+PERMATA|PERMATABANK|PERMATA\s+BANK)\b", header_scope) or ("PERMATA" in filename.upper()):
+    bank = "PERMATA"
+  elif re.search(r"\b(?:BANK\s+NOBU|NOBU\s+BANK|NATIONALNOBU)\b", header_scope) or ("NOBU" in filename.upper()):
+    bank = "NOBU"
+  elif "BANK SYARIAH INDONESIA" in full_upper or "BSI" in filename.upper():
+    bank = "BSI"
+  elif "BANK CENTRAL ASIA" in full_upper or "BCA" in filename.upper():
     bank = "BCA"
-  elif "NOBU" in txt_upper:
+  elif "BANK RAKYAT INDONESIA" in full_upper or "BRI" in filename.upper():
+    bank = "BRI"
+  elif "BANK NEGARA INDONESIA" in full_upper or "BNI" in filename.upper():
+    bank = "BNI"
+  elif "BANK MANDIRI" in full_upper or "MANDIRI" in filename.upper():
+    bank = "MANDIRI"
+  elif "BANK BJB" in full_upper or "BJB" in filename.upper():
+    bank = "BJB"
+  elif re.search(r"\b(?:BANK\s+PERMATA|PERMATABANK)\b", full_upper):
+    bank = "PERMATA"
+  elif re.search(r"\b(?:BANK\s+NOBU|NOBU\s+BANK)\b", full_upper):
     bank = "NOBU"
   else:
     bank = "UMUM"
 
   detected_month = "Bulan"
 
-  # Cek baris periode
-  period_line = ""
-  for line in full_text.split("\n"):
-    if "DATE" in line.upper() or "PERIOD" in line.upper():
-      period_line = line.upper()
-      break
-
-  search_scope = period_line if period_line else txt_upper
-
-  range_txt = re.search(
-      r"(\d{2})[-/ ]([A-Za-z]{3}|\d{2})[-/ ]\d{2,4}\s*(?:sd|-)\s*\d{2}[-/ ]([A-Za-z]{3}|\d{2})[-/ ]\d{2,4}",
-      full_text,
-  )
-  if range_txt:
-    m_raw = range_txt.group(2).upper()
-    if m_raw in MONTH_MAP:
-      detected_month = MONTH_MAP[m_raw]
-    elif m_raw.isdigit() and 1 <= int(m_raw) <= 12:
-      detected_month = MONTH_NAMES_ID[int(m_raw) - 1]
+  # 2. Deteksi Bulan Dari Header Periode
+  m_periode = re.search(r"PERIODE\s*:\s*([A-Za-z]+)\s+\d{4}", header_scope)
+  if m_periode:
+    m_cand = m_periode.group(1).upper()
+    if m_cand in MONTH_MAP:
+      detected_month = MONTH_MAP[m_cand]
+    else:
+      for m_id in MONTH_NAMES_ID:
+        if m_id.upper() == m_cand:
+          detected_month = m_id
+          break
 
   if detected_month == "Bulan":
-    for m_code, m_name in MONTH_MAP.items():
-      if re.search(rf"\b{m_code}\b", search_scope):
-        detected_month = m_name
-        break
+    m_range_str = re.search(
+        r"(?:Period|Date|Periode)\s*[:\s]*\d{2}\s+([A-Za-z]{3,9})\s+\d{2,4}",
+        header_scope,
+        re.IGNORECASE,
+    )
+    if m_range_str:
+      m_cand = m_range_str.group(1).upper()
+      if m_cand in MONTH_MAP:
+        detected_month = MONTH_MAP[m_cand]
+      else:
+        for m_id in MONTH_NAMES_ID:
+          if m_id.upper() == m_cand:
+            detected_month = m_id
+            break
 
   if detected_month == "Bulan":
-    for m_code, m_name in MONTH_MAP.items():
-      if re.search(rf"\b{m_code}\b", txt_upper):
-        detected_month = m_name
-        break
+    m_bni = re.search(
+        r"(?:Period|Periode)\s*[:\s]*\d{2}-([A-Za-z]{3})-\d{2,4}",
+        header_scope,
+        re.IGNORECASE,
+    )
+    if m_bni:
+      m_cand = m_bni.group(1).upper()
+      if m_cand in MONTH_MAP:
+        detected_month = MONTH_MAP[m_cand]
 
   if detected_month == "Bulan":
+    m_slash = re.search(
+        r"(?:Periode\s+Transaksi|Period|Periode)\s*[:\s]*\d{2}/(\d{2})/\d{2,4}",
+        header_scope,
+        re.IGNORECASE,
+    )
+    if m_slash:
+      m_num = int(m_slash.group(1))
+      if 1 <= m_num <= 12:
+        detected_month = MONTH_NAMES_ID[m_num - 1]
+
+  if detected_month == "Bulan":
+    fn_upper = filename.upper()
     for m_id in MONTH_NAMES_ID:
-      if m_id.upper() in txt_upper:
+      if m_id.upper() in fn_upper:
         detected_month = m_id
         break
 
   return bank, detected_month
+
+
+def extract_metadata_from_pdf(all_text, first_page_text, bank):
+  meta = {
+      "cabang": "",
+      "nama_cust": "",
+      "no_rekening": "",
+      "nama_bank": bank,
+      "nama_pemegang_rek": "",
+  }
+  p1 = first_page_text
+
+  if bank == "BCA":
+    cbg_m = re.search(r"REKENING GIRO\s*\n\s*([^\n]+)", p1)
+    if cbg_m:
+      meta["cabang"] = cbg_m.group(1).strip()
+    cust_m = re.search(r"KCP[^\n]*\n+([^\n]+?)(?:\s+NO\.\s*REKENING|\n)", p1)
+    if cust_m:
+      meta["nama_cust"] = cust_m.group(1).strip()
+      meta["nama_pemegang_rek"] = meta["nama_cust"]
+    rek_m = re.search(r"NO\.\s*REKENING\s*:\s*(\d+)", p1)
+    if rek_m:
+      meta["no_rekening"] = rek_m.group(1).strip()
+
+  elif bank == "BJB":
+    cbg_m = re.search(r"Branch\s*:\s*(?:[0-9]+\s*-\s*)?([^\n]+)", p1)
+    if cbg_m:
+      meta["cabang"] = cbg_m.group(1).strip()
+    cust_m = re.search(r"Corporate\s*:\s*([^\n]+)", p1)
+    if cust_m:
+      meta["nama_cust"] = cust_m.group(1).strip()
+      meta["nama_pemegang_rek"] = meta["nama_cust"]
+    rek_m = re.search(r"Account\s*:\s*(\d+)", p1)
+    if rek_m:
+      meta["no_rekening"] = rek_m.group(1).strip()
+
+  elif bank == "BNI":
+    rek_m = re.search(
+        r"Account\s+No\.\s*:\s*(\d+)\s*/\s*([^\n]+?)(?:\s*PT\(IDR\)|\(IDR\)|\n)",
+        p1,
+    )
+    if rek_m:
+      meta["no_rekening"] = rek_m.group(1).strip()
+      cust_name = rek_m.group(2).strip()
+      if not cust_name.endswith("PT") and "PT" in p1:
+        cust_name += " PT"
+      meta["nama_cust"] = cust_name
+      meta["nama_pemegang_rek"] = cust_name
+    else:
+      rek_m2 = re.search(r"Account\s+No\.\s*:\s*(\d+)", p1)
+      if rek_m2:
+        meta["no_rekening"] = rek_m2.group(1).strip()
+
+  elif bank == "BRI":
+    cbg_m = re.search(r"Unit Kerja[^\n:]*:\s*([^\n]+)", p1)
+    if cbg_m:
+      meta["cabang"] = cbg_m.group(1).strip()
+    cust_m = re.search(
+        r"Statement Date\s*\n\s*([^\n]+?)\s*(?:Periode Transaksi|\n)", p1
+    )
+    if not cust_m:
+      cust_m = re.search(r"Kepada Yth\.[^\n]*\n+([^\n]+)", p1)
+    if cust_m:
+      meta["nama_cust"] = cust_m.group(1).strip()
+      meta["nama_pemegang_rek"] = meta["nama_cust"]
+    rek_m = re.search(r"No\.\s*Rekening[^\n:]*:\s*(\d+)", p1)
+    if rek_m:
+      meta["no_rekening"] = rek_m.group(1).strip()
+
+  elif bank == "BSI":
+    rek_m = re.search(r"Account\s*:\s*(\d+)", p1)
+    if rek_m:
+      meta["no_rekening"] = rek_m.group(1).strip()
+    cust_m = re.search(
+        r"Account Statement\s*-\s*\d+\s*-\s*([^\n\d]+?)(?:\s+\d{2}\s+[A-Za-z]+|\n)",
+        p1,
+    )
+    if not cust_m:
+      cust_m = re.search(r"^([^\n]+?)\s*/\s*IDR", p1, re.MULTILINE)
+    if cust_m:
+      meta["nama_cust"] = cust_m.group(1).strip()
+      meta["nama_pemegang_rek"] = meta["nama_cust"]
+    cbg_m = re.search(r"Branch\s*:\s*([^\n]+)", p1)
+    if cbg_m:
+      meta["cabang"] = cbg_m.group(1).strip()
+
+  elif bank == "MANDIRI":
+    rek_m = re.search(
+        r"(?:No\.\s*Rekening|Account Number)\s*:\s*(\d+)", p1
+    )
+    if not rek_m:
+      rek_m = re.search(r"Account No\s+(\d+)", p1)
+    if rek_m:
+      meta["no_rekening"] = rek_m.group(1).strip()
+    cust_m = re.search(
+        r"(?:Nama Nasabah|Customer Name)\s*:\s*([^\n]+)", p1
+    )
+    if not cust_m:
+      cust_m = re.search(
+          r"Account No\s+\d+\s+IDR\s+([^\n]+?)\s+[A-Z0-9\s\-]+-", p1
+      )
+    if cust_m:
+      meta["nama_cust"] = cust_m.group(1).strip()
+      meta["nama_pemegang_rek"] = meta["nama_cust"]
+    cbg_m = re.search(r"Branch\s+([^\n]+)", p1)
+    if cbg_m:
+      meta["cabang"] = cbg_m.group(1).strip()
+
+  return meta
 
 
 # ==============================================================================
@@ -457,12 +600,21 @@ def parse_bsi_clean(pdf, all_text):
       all_text,
       re.IGNORECASE,
   )
+  tot_deb_rec_m = re.search(
+      r"Total\s+Debit\s+Record\s*[:\|]?\s*(\d+)", all_text, re.IGNORECASE
+  )
+  tot_crd_rec_m = re.search(
+      r"Total\s+Credit\s+Record\s*[:\|]?\s*(\d+)", all_text, re.IGNORECASE
+  )
+
   mutasi_db_off = (
       float(tot_deb_m.group(1).replace(",", "")) if tot_deb_m else None
   )
   mutasi_cr_off = (
       float(tot_krd_m.group(1).replace(",", "")) if tot_krd_m else None
   )
+  freq_db_off = int(tot_deb_rec_m.group(1)) if tot_deb_rec_m else None
+  freq_cr_off = int(tot_crd_rec_m.group(1)) if tot_crd_rec_m else None
 
   tx_records = []
   balances = []
@@ -488,15 +640,15 @@ def parse_bsi_clean(pdf, all_text):
       if tgl_m:
         active_date = f"{tgl_m.group(3)}/{tgl_m.group(2)}"
 
-      nums = re.findall(r"([\d,]+\.\d{2})", line_str)
-      if len(nums) >= 2:
-        val_bal = float(nums[-1].replace(",", ""))
-        val_amt = float(nums[-2].replace(",", ""))
-        is_db = (
-            "DB" in line_str.upper() and "CR" not in line_str.upper()
-        ) or " DB " in line_str.upper()
-        deb = val_amt if is_db else 0.0
-        krd = 0.0 if is_db else val_amt
+      line_match = re.search(
+          r"([\d,]+\.\d{2})\s+(DB|CR)\s+([\d,]+\.\d{2})", line_str
+      )
+      if line_match:
+        val_amt = float(line_match.group(1).replace(",", ""))
+        flag = line_match.group(2)
+        val_bal = float(line_match.group(3).replace(",", ""))
+        deb = val_amt if flag == "DB" else 0.0
+        krd = val_amt if flag == "CR" else 0.0
 
         if val_bal > 0 and (deb > 0 or krd > 0):
           balances.append(val_bal)
@@ -507,8 +659,16 @@ def parse_bsi_clean(pdf, all_text):
               "saldo": val_bal,
           })
 
-  freq_db = sum(1 for r in tx_records if r["debet"] > 0)
-  freq_cr = sum(1 for r in tx_records if r["kredit"] > 0)
+  freq_db = (
+      freq_db_off
+      if freq_db_off is not None
+      else sum(1 for r in tx_records if r["debet"] > 0)
+  )
+  freq_cr = (
+      freq_cr_off
+      if freq_cr_off is not None
+      else sum(1 for r in tx_records if r["kredit"] > 0)
+  )
   mutasi_db = (
       mutasi_db_off
       if mutasi_db_off is not None
@@ -524,6 +684,269 @@ def parse_bsi_clean(pdf, all_text):
       tx_records,
       balances,
       opening_balance,
+      freq_db,
+      freq_cr,
+      mutasi_db,
+      mutasi_cr,
+  )
+
+
+def parse_bca_clean(pdf, all_text):
+  sa_m = re.search(r"SALDO AWAL\s*:\s*([\d,\.]+)", all_text)
+  cr_m = re.search(r"MUTASI CR\s*:\s*([\d,\.]+)\s+(\d+)", all_text)
+  db_m = re.search(r"MUTASI DB\s*:\s*([\d,\.]+)\s+(\d+)", all_text)
+
+  opening_bal = float(sa_m.group(1).replace(",", "")) if sa_m else None
+  mutasi_cr_off = float(cr_m.group(1).replace(",", "")) if cr_m else None
+  freq_cr_off = int(cr_m.group(2)) if cr_m else None
+  mutasi_db_off = float(db_m.group(1).replace(",", "")) if db_m else None
+  freq_db_off = int(db_m.group(2)) if db_m else None
+
+  tx_records = []
+  active_date = ""
+
+  for page in pdf.pages:
+    txt = page.extract_text() or ""
+    lines = txt.split("\n")
+    for line in lines:
+      line_str = line.strip()
+      if not line_str or any(
+          k in line_str.upper()
+          for k in [
+              "REKENING GIRO",
+              "NO. REKENING",
+              "HALAMAN :",
+              "PERIODE :",
+              "MATA UANG",
+              "CATATAN:",
+              "TANGGAL KETERANGAN",
+              "MUTASI CR",
+              "MUTASI DB",
+              "SALDO AKHIR",
+              "BERSAMBUNG",
+          ]
+      ):
+        continue
+
+      if "SALDO AWAL" in line_str.upper():
+        if opening_bal is None:
+          nums = re.findall(r"([\d,]+\.\d{2})", line_str)
+          if nums:
+            opening_bal = float(nums[-1].replace(",", ""))
+        continue
+
+      m_date = re.match(r"^(\d{2}/\d{2})\s+", line_str)
+      if m_date:
+        active_date = m_date.group(1)
+
+      if not active_date:
+        continue
+
+      # Baris Debet (dengan akhiran DB)
+      m_db = re.search(
+          r"([\d,]+\.\d{2})\s+DB(?:\s+([\d,]+\.\d{2}))?$", line_str
+      )
+      if m_db:
+        deb = float(m_db.group(1).replace(",", ""))
+        sal = float(m_db.group(2).replace(",", "")) if m_db.group(2) else None
+        tx_records.append({
+            "date": active_date,
+            "debet": deb,
+            "kredit": 0.0,
+            "saldo": sal,
+        })
+        continue
+
+      # Baris Kredit (tanpa suffix DB, jika diawali tanggal)
+      if m_date:
+        m_cr = re.search(r"([\d,]+\.\d{2})(?:\s+([\d,]+\.\d{2}))?$", line_str)
+        if m_cr:
+          if m_cr.group(2):
+            krd = float(m_cr.group(1).replace(",", ""))
+            sal = float(m_cr.group(2).replace(",", ""))
+          else:
+            krd = float(m_cr.group(1).replace(",", ""))
+            sal = None
+          if krd > 0:
+            tx_records.append({
+                "date": active_date,
+                "debet": 0.0,
+                "kredit": krd,
+                "saldo": sal,
+            })
+
+  cur_s = opening_bal
+  for r in tx_records:
+    if r["saldo"] is not None:
+      cur_s = r["saldo"]
+    elif cur_s is not None:
+      cur_s = cur_s + r["kredit"] - r["debet"]
+      r["saldo"] = cur_s
+
+  for i in range(len(tx_records) - 2, -1, -1):
+    if tx_records[i]["saldo"] is None and tx_records[i + 1]["saldo"] is not None:
+      tx_records[i]["saldo"] = (
+          tx_records[i + 1]["saldo"]
+          - tx_records[i + 1]["kredit"]
+          + tx_records[i + 1]["debet"]
+      )
+
+  balances = [
+      r["saldo"]
+      for r in tx_records
+      if r["saldo"] is not None and r["saldo"] >= 1000
+  ]
+  if opening_bal is not None:
+    balances.append(opening_bal)
+
+  freq_db = (
+      freq_db_off
+      if freq_db_off is not None
+      else sum(1 for r in tx_records if r["debet"] > 0)
+  )
+  freq_cr = (
+      freq_cr_off
+      if freq_cr_off is not None
+      else sum(1 for r in tx_records if r["kredit"] > 0)
+  )
+  mutasi_db = (
+      mutasi_db_off
+      if mutasi_db_off is not None
+      else sum(r["debet"] for r in tx_records)
+  )
+  mutasi_cr = (
+      mutasi_cr_off
+      if mutasi_cr_off is not None
+      else sum(r["kredit"] for r in tx_records)
+  )
+
+  return (
+      tx_records,
+      balances,
+      opening_bal,
+      freq_db,
+      freq_cr,
+      mutasi_db,
+      mutasi_cr,
+  )
+
+
+def parse_bjb_clean(pdf, all_text):
+  tx_records = []
+  balances = []
+  opening_bal = None
+
+  for page in pdf.pages:
+    tables = page.extract_tables() or []
+    for tbl in tables:
+      for row in tbl:
+        if not row or len(row) < 5:
+          continue
+        row_str = " ".join(str(c) for c in row if c)
+        if (
+            "Posting Date" in row_str
+            or "Debit Transaction" in row_str
+            or "Narasi" in row_str
+        ):
+          continue
+
+        date_val = ""
+        for cell in row[:4]:
+          if cell:
+            m_d = re.search(r"(\d{2}\s+[A-Za-z]{3})", str(cell))
+            if m_d:
+              date_val = m_d.group(1)
+              break
+
+        nums_in_cells = []
+        for cell in row[3:]:
+          if cell:
+            for n in re.findall(r"[\d,]+\.\d{2}", str(cell)):
+              nums_in_cells.append(float(n.replace(",", "")))
+
+        deb_val = 0.0
+        krd_val = 0.0
+        sal_val = None
+
+        if len(nums_in_cells) == 2:
+          amt = nums_in_cells[0]
+          sal_val = nums_in_cells[1]
+          is_deb = False
+          if len(row) >= 7 and row[4]:
+            deb_cell = str(row[4])
+            if re.search(r"[\d,]+\.\d{2}", deb_cell):
+              is_deb = True
+          else:
+            is_deb = True
+            if any(
+                k in row_str.upper() for k in ["TRF DARI", "MASUK", "BUNGA"]
+            ) and "PAJAK" not in row_str.upper() and "DB" not in row_str.upper():
+              is_deb = False
+
+          deb_val = amt if is_deb else 0.0
+          krd_val = 0.0 if is_deb else amt
+
+        elif len(nums_in_cells) >= 3:
+          deb_val = nums_in_cells[0]
+          krd_val = nums_in_cells[1]
+          sal_val = nums_in_cells[2]
+
+        if date_val and (deb_val > 0 or krd_val > 0):
+          tx_records.append({
+              "date": date_val,
+              "debet": deb_val,
+              "kredit": krd_val,
+              "saldo": sal_val,
+          })
+          if sal_val is not None:
+            balances.append(sal_val)
+
+  # Fallback dengan regex baris teks jika tabel tidak terbaca
+  if not tx_records:
+    for page in pdf.pages:
+      txt = page.extract_text() or ""
+      for line in txt.split("\n"):
+        line_str = line.strip()
+        m = re.match(
+            r"^(\d+)\s+(\d{2}\s+[A-Za-z]{3}\s+\d{4})\s+(\d{2}\s+[A-Za-z]{3}\s+\d{4})\s+(.+?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$",
+            line_str,
+        )
+        if m:
+          no, d1, d2, narasi, amt_s, sal_s = m.groups()
+          amt = float(amt_s.replace(",", ""))
+          sal = float(sal_s.replace(",", ""))
+          tgl = d1[:6]
+          is_deb = True
+          if (
+              any(k in narasi.upper() for k in ["TRF DARI", "MASUK", "BUNGA"])
+              or " KR " in narasi.upper()
+          ) and ("PAJAK" not in narasi.upper() and "DB" not in narasi.upper()):
+            is_deb = False
+          deb = amt if is_deb else 0.0
+          krd = 0.0 if is_deb else amt
+          tx_records.append({
+              "date": tgl,
+              "debet": deb,
+              "kredit": krd,
+              "saldo": sal,
+          })
+          balances.append(sal)
+
+  if tx_records:
+    first = tx_records[0]
+    if first["saldo"] is not None:
+      opening_bal = first["saldo"] + first["debet"] - first["kredit"]
+      balances.insert(0, opening_bal)
+
+  freq_db = sum(1 for r in tx_records if r["debet"] > 0)
+  freq_cr = sum(1 for r in tx_records if r["kredit"] > 0)
+  mutasi_db = sum(r["debet"] for r in tx_records)
+  mutasi_cr = sum(r["kredit"] for r in tx_records)
+
+  return (
+      tx_records,
+      balances,
+      opening_bal,
       freq_db,
       freq_cr,
       mutasi_db,
@@ -550,12 +973,23 @@ def parse_rekening_universal(pdf_file_or_path):
       all_text += "\n" + txt
 
     bank, bulan = detect_bank_and_month(all_text, fname)
+    extracted_meta = extract_metadata_from_pdf(
+        all_text, pages_text[0] if pages_text else "", bank
+    )
 
     tx_records = []
     balances = []
     opening_bal = None
 
-    if bank == "BSI":
+    if bank == "BCA":
+      tx_records, balances, opening_bal, freq_db, freq_cr, mutasi_db, mutasi_cr = (
+          parse_bca_clean(pdf, all_text)
+      )
+    elif bank == "BJB":
+      tx_records, balances, opening_bal, freq_db, freq_cr, mutasi_db, mutasi_cr = (
+          parse_bjb_clean(pdf, all_text)
+      )
+    elif bank == "BSI":
       tx_records, balances, opening_bal, freq_db, freq_cr, mutasi_db, mutasi_cr = (
           parse_bsi_clean(pdf, all_text)
       )
@@ -646,7 +1080,7 @@ def parse_rekening_universal(pdf_file_or_path):
       tx_records, balances, opening_bal, freq_db, freq_cr, mutasi_db, mutasi_cr = (
           parse_mandiri_clean(pages_text, all_text, pdf=pdf)
       )
-    else:  # BCA dan UMUM
+    else:  # UMUM
       awal_m = re.search(r"SALDO AWAL\s*:\s*([\d,\.]+)", all_text)
       opening_bal = (
           float(awal_m.group(1).replace(",", "")) if awal_m else None
@@ -738,17 +1172,9 @@ def parse_rekening_universal(pdf_file_or_path):
       ]
       cr_m = re.search(r"MUTASI CR\s*:\s*([\d,\.]+)", all_text)
       db_m = re.search(r"MUTASI DB\s*:\s*([\d,\.]+)", all_text)
-      f_counts = re.findall(
-          r"\n\s*(\d{1,4})\s*\n\s*(\d{1,4})\s*$", all_text.strip()
-      )
 
-      if f_counts:
-        freq_cr = int(f_counts[-1][0])
-        freq_db = int(f_counts[-1][1])
-      else:
-        freq_db = sum(1 for r in tx_records if r["debet"] > 0)
-        freq_cr = sum(1 for r in tx_records if r["kredit"] > 0)
-
+      freq_db = sum(1 for r in tx_records if r["debet"] > 0)
+      freq_cr = sum(1 for r in tx_records if r["kredit"] > 0)
       mutasi_cr = (
           float(cr_m.group(1).replace(",", ""))
           if cr_m
@@ -781,6 +1207,7 @@ def parse_rekening_universal(pdf_file_or_path):
       "saldo_avg": saldo_avg,
       "saldo_min": saldo_min,
       "tx_records": tx_records,
+      "metadata": extracted_meta,
   }
 
 
@@ -1478,6 +1905,7 @@ st.markdown(
             <span class="bank-pill">BNI</span>
             <span class="bank-pill">BRI</span>
             <span class="bank-pill">BSI</span>
+            <span class="bank-pill">BJB</span>
             <span class="bank-pill">Permata</span>
             <span class="bank-pill">Nobu</span>
         </div>
@@ -1498,7 +1926,7 @@ with st.sidebar:
   nama_cust = st.text_input("Nama Cust", value="", placeholder="Nama lengkap customer")
   no_rek = st.text_input("Nomor Rekening", value="", placeholder="Contoh: 1230009876543")
   nama_bank = st.selectbox(
-      "Nama Bank", ["Mandiri", "BCA", "BNI", "BRI", "BSI", "Permata", "Nobu"]
+      "Nama Bank", ["Mandiri", "BCA", "BNI", "BRI", "BSI", "BJB", "Permata", "Nobu"]
   )
   pemegang_rek = st.text_input(
       "Nama Pemegang Rekening", value="", placeholder="Sesuai buku tabungan"
@@ -1517,16 +1945,6 @@ with st.sidebar:
   note_oh = st.text_area(
       "Note OH", value="-", placeholder="Catatan dari Operation Head..."
   )
-
-header_input = {
-    "cabang": cabang,
-    "nama_cust": nama_cust,
-    "no_rekening": no_rek,
-    "nama_bank": nama_bank,
-    "nama_pemegang_rek": pemegang_rek,
-    "nama_so": nama_so,
-    "nama_oh": nama_oh,
-}
 
 # Upload Container
 st.markdown("#### 📂 Berkas Rekening Koran")
@@ -1562,6 +1980,34 @@ if uploaded_files:
 if "resume_list" in st.session_state and st.session_state["resume_list"]:
   res_list = st.session_state["resume_list"]
   sorted_data = sort_resume_chronological(res_list)
+
+  # Ambil metadata dari file hasil ekstraksi jika input di sidebar masih kosong
+  detected_meta = {}
+  for item in sorted_data:
+    if item.get("metadata"):
+      detected_meta = item["metadata"]
+      break
+
+  final_cabang = cabang.strip() if cabang.strip() else detected_meta.get("cabang", "")
+  final_cust = nama_cust.strip() if nama_cust.strip() else detected_meta.get("nama_cust", "")
+  final_rek = no_rek.strip() if no_rek.strip() else detected_meta.get("no_rekening", "")
+  final_bank = nama_bank if (nama_bank and nama_bank != "Mandiri") else (detected_meta.get("nama_bank") or nama_bank)
+  final_pemegang = pemegang_rek.strip() if pemegang_rek.strip() else (final_cust or detected_meta.get("nama_pemegang_rek", ""))
+
+  header_input = {
+      "cabang": final_cabang,
+      "nama_cust": final_cust,
+      "no_rekening": final_rek,
+      "nama_bank": final_bank,
+      "nama_pemegang_rek": final_pemegang,
+      "nama_so": nama_so,
+      "nama_oh": nama_oh,
+  }
+
+  if detected_meta.get("nama_cust") or detected_meta.get("no_rekening"):
+    st.info(
+        f"📋 **Data Rekening Terdeteksi Otomatis:** Bank: **{final_bank}** | No. Rek: **{final_rek}** | Nasabah: **{final_cust}** | Cabang: **{final_cabang}**"
+    )
 
   # Ringkasan KPI
   total_debet = sum(r.get("mutasi_db", 0) for r in sorted_data)
