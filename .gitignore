@@ -1,0 +1,18 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment and virtualenvs
+.env
+.venv
+venv/
+env/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Output & temp testing files
+*.pdf
+*.xlsx
