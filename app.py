@@ -491,10 +491,9 @@ def parse_mandiri_clean(pages_text, all_text, pdf=None):
   balances = []
 
   # Coba baca via extract_tables bila ada (Mandiri Kopra terstruktur rapi)
-  table_read_success = False
   if pdf:
     for page in pdf.pages:
-      tables = page.extract_tables()
+      tables = page.extract_tables() or []
       for table in tables:
         for row in table:
           if not row or len(row) < 5:
@@ -507,20 +506,21 @@ def parse_mandiri_clean(pages_text, all_text, pdf=None):
               s_val = float(str(row[-1]).replace(",", "").strip())
               k_val = float(str(row[-2]).replace(",", "").strip())
               d_val = float(str(row[-3]).replace(",", "").strip())
-
-              tx_records.append({
-                  "date": tgl_m.group(1)[:6],
-                  "debet": d_val,
-                  "kredit": k_val,
-                  "saldo": s_val,
-              })
-              balances.append(s_val)
-              table_read_success = True
+              if (d_val > 0 or k_val > 0) and s_val > 0:
+                tx_records.append({
+                    "date": tgl_m.group(1)[:6],
+                    "debet": d_val,
+                    "kredit": k_val,
+                    "saldo": s_val,
+                })
+                balances.append(s_val)
             except (ValueError, IndexError):
               continue
 
-  # Fallback text parser jika bukan format tabel Kopra
-  if not table_read_success:
+  # Text line parser jika bukan format tabel Kopra atau hasil tabel sedikit
+  if len(tx_records) < 5:
+    tx_records = []
+    balances = []
     active_date = ""
     for txt in pages_text:
       for line in txt.split("\n"):
@@ -531,6 +531,7 @@ def parse_mandiri_clean(pages_text, all_text, pdf=None):
                 "ACCOUNT STATEMENT REPORT",
                 "CLOSING BALANCE",
                 "TOTAL DEBIT",
+                "POSTING DATE",
             ]
         ):
           continue
